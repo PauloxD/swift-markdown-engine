@@ -279,6 +279,9 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
         super.init()
         // Init + didSet share this helper so the observer tracks whichever service is current.
         subscribeToAppearanceNotification()
+        
+        // Addition
+        registerForInsertionNotifications()
     }
 
     /// (Re)register the syntax-highlighter appearance observer; idempotent and unsubscribes on nil.
