@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `NativeTextViewWrapper.onTextMutation` reports exact, completed native edits
+  for embedders that maintain their own source authority or mirror edits into
+  another presentation.
+
+### Changed
+- An ordered list's painted number no longer reverts to the source digit under
+  the caret or a selection. The number is positional, so in a run written
+  `1./1./1.` a click inside a marker — or a select-all — flipped every number
+  below an insertion back to whatever the file happens to say. The source marker
+  is hidden by size now, like every other marker the engine hides: a selection
+  repaints selected glyphs opaque, so a colour-hidden marker came back under the
+  highlight and collided with the number drawn over it. The marker's
+  caret-crossing restyle signal went with the reveal.
+
+### Performance
+- Scoped restyles inside a contiguous list parse and style only intersecting
+  items instead of rebuilding the whole list block. Marker, indentation,
+  line-break, programmatic, and undo/redo edits still widen ordered-list runs
+  when downstream display numbers can change.
+
+## [0.12.0] - 2026-08-10
+
+### Added
 - `onPersistScrollOffset` / `restoreScrollOffset` on `NativeTextViewWrapper` —
   scroll memory an embedder can keep somewhere that outlives the editor. The
   engine's own per-document offsets live on the coordinator, so an embedder that
@@ -47,6 +70,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Table cells rasterize their own text and keep the glyph-box fill.
 
 ### Fixed
+- Bare URLs and emails survive rich copy as real links. The editor styler
+  linkifies them with `NSDataDetector`, but the HTML renderer emitted them as
+  plain text, so the pasteboard's HTML/RTF/web-archive flavors carried no anchor
+  at all, and whether a copied URL arrived clickable was left to the receiving
+  app — Apple Mail runs its own detection and linkifies anyway, a consumer that
+  takes the rich flavor verbatim pastes dead text. `MarkdownHTMLRenderer` now
+  wraps detector matches in `<a href>` (emails as `mailto:`) using the same
+  system detector as the styler; the RTF and web-archive flavors are derived
+  from that HTML, so all three inherit the link. Explicit `[title](url)` links
+  were already correct; a URL-shaped run inside a link's own title stays plain
+  so anchors never nest, and code spans remain excluded, matching the styler.
+  Table cells are unaffected: they render no inline markup on the copy path.
+- Markdown link labels may hold inline code and escaped punctuation —
+  ``[`App`](/tmp/App.swift:56)`` stayed literal. Code spans and escapes are
+  claimed before links so they stay opaque, and the link pass rejected every
+  candidate overlapping a claimed span, including one lying entirely inside the
+  label. Spans contained in the label are permitted now, links act as
+  containers when the tree is built, and partial overlaps or spans crossing the
+  label boundary are still rejected.
 - Initially narrow tables reflow when the editor width shrinks instead of
   retaining stale image geometry until an unrelated full restyle.
 
