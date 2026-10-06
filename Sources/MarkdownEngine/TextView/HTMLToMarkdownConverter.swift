@@ -241,8 +241,25 @@ enum HTMLToMarkdownConverter {
         case "head", "style", "script", "title":
             return ""   // metadata / code-for-the-browser — never content
         default:
-            return nil
+            // Any other element — a web component such as Gemini's
+            // <response-element>/<table-block>, a <section>, even a <span> —
+            // is a transparent wrapper when it holds block content. Folding it
+            // into the inline run unwrapped the table or list inside as well
+            // and glued all of its text into one line.
+            return containsBlock(node) ? renderBlocks(node.children) : nil
         }
+    }
+
+    /// Elements that open a Markdown block of their own.
+    private static let blockElements: Set<String> = [
+        "p", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+        "table", "blockquote", "pre", "hr"
+    ]
+
+    /// True when `node`'s subtree holds a block element, i.e. `node` wraps
+    /// structure rather than a run of inline text.
+    private static func containsBlock(_ node: Node) -> Bool {
+        node.children.contains { blockElements.contains($0.name) || containsBlock($0) }
     }
 
     private static func renderList(_ node: Node, ordered: Bool, depth: Int) -> String {
@@ -251,9 +268,22 @@ enum HTMLToMarkdownConverter {
         if ordered, let start = node.attrs["start"], let seed = Int(start) {
             number = seed - 1
         }
-        for child in node.children where child.name == "li" {
-            number += 1
-            items.append(renderListItem(child, ordered: ordered, number: number, depth: depth))
+        for child in node.children {
+            switch child.name {
+            case "li":
+                number += 1
+                items.append(renderListItem(child, ordered: ordered, number: number, depth: depth))
+            case "ul", "ol":
+                // WebKit indents a bullet by hanging the sublist BESIDE the
+                // <li> instead of inside it — 6 of 6 nestings in a real Apple
+                // Mail paste. Invalid per spec, drawn correctly by every
+                // browser, so only a reader loses it: ignoring a non-<li>
+                // child dropped every item the sublist held (#1098).
+                let sub = renderList(child, ordered: child.name == "ol", depth: depth + 1)
+                if !sub.isEmpty { items.append(sub) }
+            default:
+                continue
+            }
         }
         return items.joined(separator: "\n")
     }
@@ -301,7 +331,9 @@ enum HTMLToMarkdownConverter {
                     flushInline()
                     if let block = renderBlock(child), !block.isEmpty { blocks.append(block) }
                 default:
-                    inlineRun.append(child)
+                    // Same rule as `renderBlock`: an unknown wrapper around
+                    // block content is transparent, like a <div>.
+                    if containsBlock(child) { walk(child.children) } else { inlineRun.append(child) }
                 }
             }
         }

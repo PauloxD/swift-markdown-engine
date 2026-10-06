@@ -7,7 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Smart paste keeps tables, lists and headings that arrive wrapped in elements the converter doesn't know (Gemini's `<response-element>`/`<table-block>` web components, `<section>`, a Google Docs `<b>` wrapper); they used to collapse into one line of text.
+
+## [0.14.0] - 2026-10-04
+
 ### Added
+- `SpellCheckingPolicy.automaticQuoteSubstitution` (default `true`, unchanged behavior) lets embedders editing raw Markdown/LaTeX source keep straight `'` and `"`; smart quotes were forced on at creation and re-enabled on every caret move out of a code/LaTeX/link span. The Smart Quotes menu toggle is now captured like the spelling toggles.
+- **Directive glyph presentation**: a self-contained call (`@marker`,
+  `@glyph(star.fill)`) collapses its source behind an SF Symbol, replacement
+  text, or an image supplied by the directive's `presentation`, and reveals the
+  real characters again under the caret. The source is never removed from the
+  storage — it collapses to zero width the same way inline LaTeX does — so
+  selection, find, copy, and undo still see it. `Demo/` gains `@icon`, `@flag`,
+  `@emoji`, and `@pagebreak` as embedder-side directives — anything carrying
+  curated data or document policy is an app concern, not an engine primitive.
+- **Directive autocomplete** for both directive names and argument values,
+  riding the existing inline-preview seam (`onDirectiveCompletion`,
+  `pendingDirectiveCompletion`); the engine detects the trigger, ranks the
+  candidates from the registry and from the directive's own
+  `valueCompletions`, routes ↑/↓/↵/Esc, and ships no picker UI. The default
+  `valueCompletions` already answers anything the declared schema can — closed
+  keyword sets and booleans — so a directive implements it only when its domain
+  is dynamic or too large to declare.
+
+### Fixed
+- Nested lists keep their levels both ways: copied out as nested HTML/RTF
+  instead of one flat list, and read back from WebKit's sibling-sublist shape
+  (Mail, Notes) instead of dropping its items. Task boxes render with the list
+  helpers turned off.
+- A trackpad held against the top or bottom of the editor no longer flickers.
+  AppKit applies a scroll on the next display refresh, after `scrollWheel(with:)`
+  has returned, so the clamp there only ever corrected the PREVIOUS event — with
+  the rubber band allowed, every refresh committed a fresh overshoot (12–24pt)
+  and every event pulled it back. `ClampedScrollView` now disables vertical
+  elasticity; the document view is already sized to the real content height, so
+  AppKit stops exactly at the edge and the clamp is a backstop again.
+- A programmatic content swap — a document switch, or the SwiftUI `text` binding
+  changing from outside the editor — left the code-block selection pass reading
+  the PREVIOUS document's ranges: only the typing and caret paths refreshed that
+  cache, never the rebuild. The length guard from #151 stops the resulting
+  `NSRangeException`, but only for ranges that no longer fit; an incoming
+  document that is LONGER keeps them in bounds, so a copy button was reported
+  over ordinary prose, carrying a slice of that prose as its code. The rebuild
+  now hands its own parse to the cache.
+
+### Changed
+- Raw source mode reports no code blocks. It draws no overlays either way, but
+  the token cache used to survive the switch into it, so an embedder arriving
+  from styled mode kept its copy buttons while one opening straight into raw
+  mode never had them. Now neither does.
+
+## [0.13.0] - 2026-09-20
+
+### Added
+- `rendersTablesDuringLiveResize` lets embedders defer table reflow until resize ends while preserving synchronous final-width updates.
 - **Directive seam (parsing)**: opt-in named inline commands with typed
   arguments, for constructs that need a name and parameters rather than
   delimiters. A `MarkdownDirective` declares a name, a form — self-contained
@@ -54,6 +108,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a larger mark climb toward the top of its line.
 
 ### Changed
+- The span-density regression tests assert on counted work instead of elapsed
+  time, so they run on CI again. `InlineParser.parse` can report an
+  `InlineParseCost` — claimed-range probes and containment tests — which is a
+  pure function of the input and therefore reads the same on a laptop and on a
+  contended runner. Linear measures 6.0x for 6x the spans; the pre-rewrite
+  pairwise containment measures 33.9x. The wall-clock assertions stay for
+  absolute numbers, still opt-in via `MDE_PERF=1`.
 - An ordered list's painted number no longer reverts to the source digit under
   the caret or a selection. The number is positional, so in a run written
   `1./1./1.` a click inside a marker — or a select-all — flipped every number
@@ -62,6 +123,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repaints selected glyphs opaque, so a colour-hidden marker came back under the
   highlight and collided with the number drawn over it. The marker's
   caret-crossing restyle signal went with the reveal.
+
+### Fixed
+- Block LaTeX formulas now use display typesetting, so large-operator limits
+  and fractions render correctly.
+- Rendered tables now follow every live editor-width change, including
+  fractional widths, and settle at the final width when window resizing ends.
 
 ### Performance
 - Scoped restyles inside a contiguous list parse and style only intersecting

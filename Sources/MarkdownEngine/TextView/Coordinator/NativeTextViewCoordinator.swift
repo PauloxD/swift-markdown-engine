@@ -84,6 +84,14 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     var onBuildContextMenu: ((NSMenu, NSRange) -> NSMenu)?
     var onInlineSelectionChange: ((InlineSelectionState?) -> Void)?
     var onInlinePreviewKey: ((InlinePreviewKey) -> Bool)?
+    /// Directive autocomplete: published whenever the caret's completion
+    /// context changes, `nil` to dismiss. Detection and commit live in
+    /// `NativeTextViewCoordinator+Directives.swift`.
+    var onDirectiveCompletion: ((DirectiveCompletionContext?) -> Void)?
+    /// True while a completion context is published — the signal
+    /// `doCommandBy` uses to route ↑/↓/↵/Esc to the embedder's picker.
+    var isDirectiveCompletionActive: Bool = false
+    var lastAppliedDirectiveCompletionID: UUID?
     var onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)?
     var didInitialFormatting: Bool = false
     /// One-shot guard so `updateCodeBlockSelection` only forces a full-document layout once per document.
@@ -198,6 +206,7 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     var userPrefersContinuousSpellChecking: Bool = true
     var userPrefersGrammarChecking: Bool = true
     var userPrefersAutomaticSpellingCorrection: Bool = true
+    var userPrefersAutomaticQuoteSubstitution: Bool = true
 
     /// Fires after the user toggles a spell/grammar/auto-correction menu item.
     /// Embedders persist the returned policy (e.g. to `UserDefaults`) and feed
@@ -208,7 +217,8 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
         SpellCheckingPolicy(
             continuousSpellChecking: userPrefersContinuousSpellChecking,
             grammarChecking: userPrefersGrammarChecking,
-            automaticSpellingCorrection: userPrefersAutomaticSpellingCorrection
+            automaticSpellingCorrection: userPrefersAutomaticSpellingCorrection,
+            automaticQuoteSubstitution: userPrefersAutomaticQuoteSubstitution
         )
     }
 
@@ -220,6 +230,7 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
         userPrefersContinuousSpellChecking = textView.isContinuousSpellCheckingEnabled
         userPrefersGrammarChecking = textView.isGrammarCheckingEnabled
         userPrefersAutomaticSpellingCorrection = textView.isAutomaticSpellingCorrectionEnabled
+        userPrefersAutomaticQuoteSubstitution = textView.isAutomaticQuoteSubstitutionEnabled
         // Invalidate the "didn't change" short-circuit so the next selection
         // update re-applies the preferences cleanly.
         cachedSpellingDisabled = nil
@@ -238,6 +249,9 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
         let wikiLinkTokens: [MarkdownToken]
         let imageEmbedTokens: [MarkdownToken]
         let tableTokens: [MarkdownToken]
+        /// Standalone table paragraphs, computed once with the parse instead
+        /// of rediscovering them from every attributed run on each resize.
+        let tableParagraphRanges: [NSRange]
         /// Code-block tokens with their index into `tokens` (active-token
         /// checks need the original index) — collected in the same single
         /// classification pass instead of a per-call full-token filter.

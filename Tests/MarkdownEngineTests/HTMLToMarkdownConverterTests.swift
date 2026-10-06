@@ -43,6 +43,25 @@ struct HTMLToMarkdownConverterTests {
         #expect(md(html) == "- Parent\n\t- Child")
     }
 
+    @Test("a sublist placed NEXT TO its <li> (WebKit) indents instead of vanishing")
+    func siblingNestedList() {
+        // Apple Mail/Notes indent a bullet by appending the sublist as a
+        // SIBLING of the <li>. Invalid per spec, rendered right by every
+        // browser — measured on a real Mail paste: 6 of 6 nestings this shape.
+        #expect(md("<ul><li>A</li><ul><li>B</li><li>C</li></ul></ul>") == "- A\n\t- B\n\t- C")
+        #expect(md("<ul><li>A</li><ul><li>B</li><ul><li>C</li></ul></ul></ul>") == "- A\n\t- B\n\t\t- C")
+        #expect(md("<ul><li>A</li><ol><li>B</li></ol></ul>") == "- A\n\t1. B")
+        // The sibling sublist must not consume the parent's numbering.
+        #expect(md("<ol><li>A</li><ul><li>B</li></ul><li>C</li></ol>") == "1. A\n\t- B\n2. C")
+    }
+
+    @Test("a nested list survives the copy → paste round trip")
+    func nestedRoundTrip() {
+        let markdown = "- A\n\t- B\n\t\t- C\n- D"
+        let html = MarkdownHTMLRenderer.html(from: markdown)
+        #expect(HTMLToMarkdownConverter.markdown(fromHTML: html) == markdown)
+    }
+
     @Test("checkbox li becomes GFM task item")
     func taskList() {
         let html = "<ul>"
@@ -101,6 +120,36 @@ struct HTMLToMarkdownConverterTests {
             + "<table>\n<thead>\n<tr>\n<th>Feld</th>\n<th>Wert</th>\n</tr>\n</thead>\n"
             + "<tbody>\n<tr>\n<td>Arbeitgeber</td>\n<td>CF GmbH</td>\n</tr>\n</tbody>\n</table></body></html>"
         #expect(md(html) == "| Feld | Wert |\n|---|---|\n| Arbeitgeber | CF GmbH |")
+    }
+
+    @Test("a table inside unknown web components (Gemini) stays a table")
+    func tableInsideWebComponents() {
+        // Gemini wraps every table in Angular custom elements. Unknown tags
+        // used to fold into the inline run, which unwrapped the <table> too
+        // and glued every cell into one line of bold text.
+        let html = "<meta charset='utf-8'><div class=\"horizontal-scroll-wrapper\">"
+            + "<div class=\"table-block-component\"><response-element class=\"no-md\">"
+            + "<table-block _nghost-ng-c1857903257=\"\"><div class=\"table-block\">"
+            + "<div not-end-of-paragraph=\"\" class=\"table-content md-content\"><table>"
+            + "<thead><tr><td><strong>Land</strong></td><td><strong>QoQ</strong></td></tr></thead>"
+            + "<tbody><tr><td><span><b>China</b> 🇨🇳</span></td><td><span><b>+0,9 %</b></span></td></tr></tbody>"
+            + "</table></div><div class=\"table-footer\"><gem-icon-button arialabel=\"Weitere Optionen\">"
+            + "</gem-icon-button></div></div></table-block></response-element></div></div>"
+        #expect(md(html) == "| **Land** | **QoQ** |\n|---|---|\n| **China** 🇨🇳 | **+0,9 %** |")
+    }
+
+    @Test("block content inside an unknown or inline wrapper keeps its structure")
+    func blocksInsideUnknownWrapper() {
+        #expect(md("<section><ul><li>A</li><li>B</li></ul></section>") == "- A\n- B")
+        #expect(md("<span><table><tr><td>a</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table></span>")
+            == "| a | b |\n|---|---|\n| 1 | 2 |")
+        #expect(md("<ul><li>Parent<x-wrap><ul><li>Child</li></ul></x-wrap></li></ul>") == "- Parent\n\t- Child")
+    }
+
+    @Test("an unknown wrapper around inline content stays inline")
+    func inlineUnknownWrapper() {
+        #expect(md("<p>a <x-chip>b</x-chip> c</p>") == "a b c")
+        #expect(md("<h2>Title <x-badge><b>new</b></x-badge></h2>") == "## Title **new**")
     }
 
     @Test("bare li fragments become one tight bullet list")
